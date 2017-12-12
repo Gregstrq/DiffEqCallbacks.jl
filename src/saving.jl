@@ -30,7 +30,8 @@ end
 end
 
 
-mutable struct SavingAffect{SaveFunc, tType, savevalType, saveatType, saveatCacheType}
+mutable struct SavingAffect{uType, SaveFunc, tType, savevalType, saveatType, saveatCacheType}
+    curu::uType
     save_func::SaveFunc
     saved_values::SavedValues{tType, savevalType}
     saveat::saveatType
@@ -45,11 +46,10 @@ function (affect!::SavingAffect)(integrator)
         affect!.saveiter += 1
         curt = pop!(affect!.saveat) # current time
         if curt != integrator.t # If <t, interpolate
-            ode_addsteps!(integrator)
             Θ = (curt - integrator.tprev)/integrator.dt
-            curu = ode_interpolant(Θ, integrator, nothing, Val{0}) # out of place, but no force copy later
+            ode_interpolant!(affect!.curu, Θ, integrator, nothing, Val{0})
             copyat_or_push!(affect!.saved_values.t, affect!.saveiter, curt)
-            copyat_or_push!(affect!.saved_values.saveval, affect!.saveiter, affect!.save_func(curt, curu, integrator))
+            copyat_or_push!(affect!.saved_values.saveval, affect!.saveiter, affect!.save_func(curt, affect!.curu, integrator))
         else # ==t, just save
             copyat_or_push!(affect!.saved_values.t, affect!.saveiter, integrator.t)
             copyat_or_push!(affect!.saved_values.saveval, affect!.saveiter, affect!.save_func(integrator.t, integrator.u, integrator))
@@ -91,7 +91,7 @@ interpolation if necessary.
 If the time `tdir` direction is not positive, i.e. `tspan[1] > tspan[2]`,
 `tdir = -1` has to be specified.
 """
-function SavingCallback(save_func, saved_values::SavedValues;
+function SavingCallback(save_func, saved_values::SavedValues, u_prototype;
                         saveat=Vector{eltype(saved_values.t)}(),
                         save_everystep=isempty(saveat),
                         tdir=1)
@@ -102,7 +102,7 @@ function SavingCallback(save_func, saved_values::SavedValues;
     else
         saveat_internal = binary_maxheap(saveat_vec)
     end
-    affect! = SavingAffect(save_func, saved_values, saveat_internal, saveat_vec, save_everystep, 0)
+    affect! = SavingAffect(similar(u_prototype), save_func, saved_values, saveat_internal, saveat_vec, save_everystep, 0)
     condtion = (t, u, integrator) -> true
     DiscreteCallback(condtion, affect!;
                      initialize = saving_initialize,
